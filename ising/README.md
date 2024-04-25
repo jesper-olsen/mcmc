@@ -11,9 +11,6 @@ References:
 Run
 -----
 
-Output is saved to "route.dat", which has the same format as the input and can be used to
-continue reordering any number of times, e.g.:
-
 ```
 % cargo run -- -h
 
