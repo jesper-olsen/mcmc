@@ -1,4 +1,4 @@
-tsp
+mcmc
 ==============
 
 Ising model - by "Heat Bath" and Wolff clustering [1][2]. 
@@ -32,5 +32,4 @@ continue reordering any number of times, e.g.:
 ```
 
 
-![GIF](https://raw.githubusercontent.com/jesper-olsen/mcmc/master/ising/animated_Wolf_h0_t2_3.gif) 
-
+![GIF](https://github.com/jesper-olsen/mcmc/blob/main/ising/Assets/animated_Wolf_h0_t2_3.gif) 
