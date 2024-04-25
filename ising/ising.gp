@@ -1,6 +1,5 @@
 set terminal pngcairo enhanced font 'arial,10' size 800, 650
 
-# Set the title and labels
 set title 'Ising Model Spin Configuration'
 set xlabel 'Column'
 set ylabel 'Row'
