@@ -1,9 +1,8 @@
 use clap::Parser;
-use gnuplot::{Figure, Caption, Color, AxesCommon};
+use gnuplot::{AxesCommon, Caption, Color, Figure};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-
-pub mod marsaglia;
+use stmc_rs::marsaglia::Marsaglia;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -31,7 +30,6 @@ fn main() {
         "fname: {} niter: {} dbeta: {} num_replicas: {} greedy {}",
         args.fname, args.niter, args.dbeta, args.num_replicas, args.greedy
     );
-
     let mut x = read_cities(&args.fname);
     let route = if args.greedy {
         let mut route = greedy_ordering(&mut x.clone());
@@ -41,35 +39,33 @@ fn main() {
     } else {
         x.push(x[0]);
         tsp(&x, args.niter, args.dbeta, args.num_replicas)
-    };     
+    };
 
     println!("Route length: {}", calc_distance(&x, &route));
-    let x2: Vec<(f64,f64)> = route.iter().map(|i| x[*i]).collect();
+    let x2: Vec<(f64, f64)> = route.iter().map(|i| x[*i]).collect();
     plot(&x, &x2);
     let fname = "route.dat";
     println!("Saving ordering to {fname}");
     let file = File::create(fname).unwrap();
     let mut writer = BufWriter::new(file);
-    for icity in 0..x.len()-1 {
+    for icity in 0..x.len() - 1 {
         let p = &x[route[icity]];
         writeln!(writer, "{} {}", p.0, p.1).unwrap();
     }
 }
 
 fn read_cities(fname: &str) -> Vec<(f64, f64)> {
-    let file = File::open(fname).unwrap();
-    let reader = BufReader::new(file);
-    let mut x: Vec<(f64, f64)> = Vec::new(); // city coordinates - 2d plane
-    for r in reader.lines() {
-        let line = r.expect("Failed to read line");
-        let mut iter = line.split_whitespace();
-        let (f0, f1) = (
-            iter.next().unwrap().parse().unwrap(),
-            iter.next().unwrap().parse().unwrap(),
-        );
-        x.push((f0, f1));
-    }
-    x
+    let file = File::open(fname).expect("Unable to open file");
+    BufReader::new(file)
+        .lines()
+        .filter_map(|line| {
+            let l = line.ok()?;
+            let mut parts = l.split_whitespace();
+            let x = parts.next()?.parse().ok()?;
+            let y = parts.next()?.parse().ok()?;
+            Some((x, y))
+        })
+        .collect()
 }
 
 fn euclid_sq(a: &(f64, f64), b: &(f64, f64)) -> f64 {
@@ -79,26 +75,26 @@ fn euclid_sq(a: &(f64, f64), b: &(f64, f64)) -> f64 {
 }
 
 /// return index of element closest to x[0]
-fn nearest(x: &[(f64,f64)]) -> usize {
+fn nearest(x: &[(f64, f64)]) -> usize {
     let mut imin = 0;
     let mut dmin = f64::MAX;
-    for (i,e) in x[1..].iter().enumerate() {
-        let d = euclid_sq(e,&x[0]);
-        if d<dmin {
+    for (i, e) in x[1..].iter().enumerate() {
+        let d = euclid_sq(e, &x[0]);
+        if d < dmin {
             dmin = d;
-            imin = i+1;
+            imin = i + 1;
         }
     }
     imin
 }
 
-fn greedy_ordering(x: &mut [(f64,f64)]) -> Vec<usize> {
-    let mut ordering: Vec<usize> = (0..x.len()).map(|i| i).collect();
-    for i in 0..x.len()-1 {
+fn greedy_ordering(x: &mut [(f64, f64)]) -> Vec<usize> {
+    let mut ordering: Vec<usize> = (0..x.len()).collect();
+    for i in 0..x.len() - 1 {
         let j = nearest(&x[i..]);
-        if i+1!=j+i {
-            x.swap(i+1,j+i);
-            ordering.swap(i+1,j+i);
+        if i + 1 != j + i {
+            x.swap(i + 1, j + i);
+            ordering.swap(i + 1, j + i);
         }
     }
     ordering
@@ -115,9 +111,25 @@ fn calc_distance(x: &[(f64, f64)], ordering: &[usize]) -> f64 {
         .sum()
 }
 
-fn tsp(x: &Vec<(f64, f64)>, niter: usize, dbeta: f64, num_replicas: usize) -> Vec<usize> {
+//fn calc_distance(x: &[(f64, f64)], ordering: &[usize]) -> f64 {
+//    let n = ordering.len();
+//    if n < 2 { return 0.0; }
+//
+//    (0..n)
+//        .map(|i| {
+//            let city_a = x[ordering[i]];
+//            let city_b = x[ordering[(i + 1) % n]]; // Wraps index n back to 0
+//            
+//            let dx = city_a.0 - city_b.0;
+//            let dy = city_a.1 - city_b.1;
+//            (dx * dx + dy * dy).sqrt()
+//        })
+//        .sum()
+//}
+
+fn tsp(x: &[(f64, f64)], niter: usize, dbeta: f64, num_replicas: usize) -> Vec<usize> {
     let ncity = x.len() - 1;
-    let mut minimum_distance = 0.0;
+    let mut minimum_distance = f64::MAX;
     let mut minimum_ordering = vec![0; ncity + 1];
 
     let mut ordering = vec![vec![0; ncity + 1]; num_replicas];
@@ -125,11 +137,11 @@ fn tsp(x: &Vec<(f64, f64)>, niter: usize, dbeta: f64, num_replicas: usize) -> Ve
         (0..e.len()).for_each(|icity| e[icity] = icity);
     }
 
-    let mut rng = marsaglia::Marsaglia::new(12, 34, 56, 78);
+    let mut rng = Marsaglia::default();
     for iter in 0..niter {
         // MCMC - 1 or more steps
         for _ in 0..1 {
-            for (i,replica) in ordering.iter_mut().enumerate() {
+            for (i, replica) in ordering.iter_mut().enumerate() {
                 let (mut k, mut l) = (0, 0);
                 while k == l {
                     k = (rng.uni() * ((ncity - 1) as f64)) as usize + 1;
@@ -138,9 +150,9 @@ fn tsp(x: &Vec<(f64, f64)>, niter: usize, dbeta: f64, num_replicas: usize) -> Ve
 
                 // Metropolis for each replica
                 let beta = (i + 1) as f64 * dbeta;
-                let action_init = calc_distance(&x, replica) * beta;
+                let action_init = calc_distance(x, replica) * beta;
                 replica.swap(k, l);
-                let action_fin = calc_distance(&x, replica) * beta; // TODO: optimise
+                let action_fin = calc_distance(x, replica) * beta; // TODO: optimise - only four edges can change when two cities are swapped...
 
                 // Metropolis test
                 if (action_init - action_fin).exp() <= rng.uni() {
@@ -154,18 +166,18 @@ fn tsp(x: &Vec<(f64, f64)>, niter: usize, dbeta: f64, num_replicas: usize) -> Ve
         for i in 1..num_replicas {
             let beta1 = i as f64 * dbeta;
             let beta2 = (i + 1) as f64 * dbeta;
-            let action_init = calc_distance(&x, &ordering[i - 1]) * beta1
-                + calc_distance(&x, &ordering[i]) * beta2;
-            let action_fin = calc_distance(&x, &ordering[i - 1]) * beta2
-                + calc_distance(&x, &ordering[i]) * beta1;
+            let action_init =
+                calc_distance(x, &ordering[i - 1]) * beta1 + calc_distance(x, &ordering[i]) * beta2;
+            let action_fin =
+                calc_distance(x, &ordering[i - 1]) * beta2 + calc_distance(x, &ordering[i]) * beta1;
             // Metropolis test
             if (action_init - action_fin).exp() > rng.uni() {
                 ordering.swap(i - 1, i);
             }
         }
 
-        let distance = calc_distance(&x, &ordering[num_replicas - 1]);
-        if iter == 0 || distance < minimum_distance {
+        let distance = calc_distance(x, &ordering[num_replicas - 1]);
+        if distance < minimum_distance {
             minimum_distance = distance;
             minimum_ordering[..].copy_from_slice(&ordering[num_replicas - 1][..])
         }
@@ -179,40 +191,35 @@ fn tsp(x: &Vec<(f64, f64)>, niter: usize, dbeta: f64, num_replicas: usize) -> Ve
     minimum_ordering
 }
 
-fn plot(cities: &Vec<(f64,f64)>, route: &Vec<(f64,f64)>) {
+fn plot(cities: &[(f64, f64)], route: &[(f64, f64)]) {
     let mut fg = Figure::new();
 
     fg.set_terminal("qt", "");
 
     fg.set_title("Traveling Salesman Problem");
-    fg.axes2d()
-      .set_x_label("X",&[])
-      .set_y_label("Y",&[]);
+    fg.axes2d().set_x_label("X", &[]).set_y_label("Y", &[]);
 
-    fg.axes2d()
-      .points(
+    fg.axes2d().points(
         cities.iter().map(|&(_, y)| y),
         cities.iter().map(|&(x, _)| x),
-        &[Caption(""), Color("blue"),],
+        &[Caption("Route"), Color(gnuplot::RGBString("blue"))],
     );
 
-    fg.axes2d()
-      .lines(
+    fg.axes2d().lines(
         route.iter().map(|&(_, y)| y),
         route.iter().map(|&(x, _)| x),
-        &[Caption("Route"), Color("red"),],
+        &[Caption("Route"), Color(gnuplot::RGBString("red"))],
     );
 
     fg.show().unwrap();
 }
-
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn tsp_test() {
         let mut x = crate::read_cities(&"assets/cities10.dat");
-        x.push(x[0]); 
+        x.push(x[0]);
         let r = crate::tsp(&x, 5000, 0.5, 200);
         let expect = vec![0, 5, 4, 3, 2, 1, 9, 6, 7, 8, 10];
         assert_eq!(r, expect);
@@ -220,8 +227,8 @@ mod tests {
 
     #[test]
     fn test_greedy() {
-        let mut x = vec![(0.0, 0.0), (3.0, 3.0), (2.0, 2.0), (1.0, 1.0), (0.0,0.0)];
-        let ordering=crate::greedy_ordering(&mut x);
-        assert_eq!(ordering, vec![0,4,3,2,1]);
+        let mut x = vec![(0.0, 0.0), (3.0, 3.0), (2.0, 2.0), (1.0, 1.0), (0.0, 0.0)];
+        let ordering = crate::greedy_ordering(&mut x);
+        assert_eq!(ordering, vec![0, 4, 3, 2, 1]);
     }
 }

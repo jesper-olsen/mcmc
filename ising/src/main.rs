@@ -5,8 +5,7 @@ use core::str::FromStr;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-
-pub mod marsaglia;
+use stmc_rs::marsaglia::Marsaglia;
 
 const COUPLING_J: f64 = 1.0; // constant
 
@@ -116,7 +115,7 @@ fn heat_bath_prob(
 
 fn make_cluster(
     lat: &Lattice,
-    rnd: &mut marsaglia::Marsaglia,
+    rnd: &mut Marsaglia,
     temperature: f64,
 ) -> (i32, Vec<(usize, usize)>) {
     let mut in_out = vec![true; lat.xdim * lat.ydim];
@@ -149,11 +148,11 @@ fn make_cluster(
 
 fn wolf_update(
     lat: &mut Lattice,
-    rng: &mut marsaglia::Marsaglia,
+    rng: &mut Marsaglia,
     temperature: f64,
     coupling_h: f64,
 ) {
-    let (cspin, i_cluster) = make_cluster(&lat, rng, temperature);
+    let (cspin, i_cluster) = make_cluster(lat, rng, temperature);
     let metropolis = rng.uni();
     if (-2.0 / temperature * coupling_h * cspin as f64 * i_cluster.len() as f64).exp() > metropolis
     {
@@ -163,13 +162,13 @@ fn wolf_update(
     }
 }
 
-fn heat_bath_update(lat: &mut Lattice, rng: &mut marsaglia::Marsaglia, temp: f64, coupling_h: f64) {
+fn heat_bath_update(lat: &mut Lattice, rng: &mut Marsaglia, temp: f64, coupling_h: f64) {
     let rand_site = rng.uni() * lat.xdim as f64 * lat.ydim as f64;
     let (ix, iy) = (rand_site as usize / lat.ydim, rand_site as usize % lat.ydim);
     lat.set_spin(
         ix,
         iy,
-        heat_bath_prob(&lat, (ix, iy), temp, coupling_h) > rng.uni(),
+        heat_bath_prob(lat, (ix, iy), temp, coupling_h) > rng.uni(),
     ); // metropolis
 }
 
@@ -205,7 +204,7 @@ fn main() {
     let log_interval = niter / 10;
     let algorithm = args.u;
 
-    let mut rng = marsaglia::Marsaglia::new(12, 34, 56, 78);
+    let mut rng = Marsaglia::new(12, 34, 56, 78);
     let mut lat = Lattice::new(width, height);
     println!("#iteration  #avg spin   #avg energy");
     for iter in 1..=niter {
