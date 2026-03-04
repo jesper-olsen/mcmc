@@ -1,7 +1,7 @@
 use clap::Parser;
 use gnuplot::{AxesCommon, Caption, Color, Figure};
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Error, Write};
 use stmc_rs::marsaglia::Marsaglia;
 
 #[derive(Parser, Debug)]
@@ -27,38 +27,41 @@ struct Args {
     fname: String,
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let args = Args::parse();
     println!(
         "fname: {} niter: {} dbeta: {} num_replicas: {} greedy {}",
         args.fname, args.niter, args.dbeta, args.num_replicas, args.greedy
     );
-    let mut x = read_cities(&args.fname);
+    let cities = read_cities(&args.fname)?;
     let mut route = if args.greedy {
-        greedy_ordering(&mut x)
+        greedy_ordering(&mut cities.clone())
     } else {
-        tsp(&x, args.niter, args.dbeta, args.num_replicas)
+        tsp(&cities, args.niter, args.dbeta, args.num_replicas)
     };
 
-    println!("Route length: {}", calc_distance(&x, &route));
+    println!("Route length: {}", calc_distance(&cities, &route));
     let fname = "route.dat";
     println!("Saving ordering to {fname}");
-    let file = File::create(fname).unwrap();
+
+    let file = File::create(fname)?;
     let mut writer = BufWriter::new(file);
-    for icity in 0..x.len() - 1 {
-        let p = &x[route[icity]];
-        writeln!(writer, "{} {}", p.0, p.1).unwrap();
+    for city_idx in &route {
+        let (x, y) = cities[*city_idx];
+        writeln!(writer, "{x} {y}")?;
     }
 
-    x.push(x[0]);
+    // add link from end to start
     route.push(0);
-    let x2: Vec<(f64, f64)> = route.iter().map(|i| x[*i]).collect();
-    plot(&x, &x2);
+    let x2: Vec<(f64, f64)> = route.iter().map(|i| cities[*i]).collect();
+    plot(&x2);
+    Ok(())
 }
 
-fn read_cities(fname: &str) -> Vec<(f64, f64)> {
-    let file = File::open(fname).expect("Unable to open file");
-    BufReader::new(file)
+// format: one line per city, (x,y) coordinates
+fn read_cities(fname: &str) -> Result<Vec<(f64, f64)>, Error> {
+    let file = File::open(fname)?;
+    Ok(BufReader::new(file)
         .lines()
         .filter_map(|line| {
             let l = line.ok()?;
@@ -67,7 +70,7 @@ fn read_cities(fname: &str) -> Vec<(f64, f64)> {
             let y = parts.next()?.parse().ok()?;
             Some((x, y))
         })
-        .collect()
+        .collect())
 }
 
 fn euclid_sq(a: &(f64, f64), b: &(f64, f64)) -> f64 {
@@ -184,23 +187,23 @@ fn tsp(x: &[(f64, f64)], niter: usize, dbeta: f64, num_replicas: usize) -> Vec<u
     minimum_ordering
 }
 
-fn plot(cities: &[(f64, f64)], route: &[(f64, f64)]) {
+fn plot(route: &[(f64, f64)]) {
     let mut fg = Figure::new();
 
-    fg.set_terminal("qt", "");
+    //fg.set_terminal("qt", "");
 
     fg.set_title("Traveling Salesman Problem");
     fg.axes2d().set_x_label("X", &[]).set_y_label("Y", &[]);
 
     fg.axes2d().points(
-        cities.iter().map(|&(_, y)| y),
-        cities.iter().map(|&(x, _)| x),
+        route.iter().map(|&(x, _)| x),
+        route.iter().map(|&(_, y)| y),
         &[Caption("Route"), Color(gnuplot::RGBString("blue"))],
     );
 
     fg.axes2d().lines(
-        route.iter().map(|&(_, y)| y),
         route.iter().map(|&(x, _)| x),
+        route.iter().map(|&(_, y)| y),
         &[Caption("Route"), Color(gnuplot::RGBString("red"))],
     );
 
@@ -211,7 +214,7 @@ fn plot(cities: &[(f64, f64)], route: &[(f64, f64)]) {
 mod tests {
     #[test]
     fn tsp_test() {
-        let mut x = crate::read_cities(&"assets/cities10.dat");
+        let mut x = crate::read_cities(&"assets/cities10.dat").unwrap();
         let r = crate::tsp(&x, 5000, 0.5, 200);
         let expect = vec![0, 5, 4, 3, 2, 1, 9, 6, 7, 8];
         assert_eq!(r, expect);
