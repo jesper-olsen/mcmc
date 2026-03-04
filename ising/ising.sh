@@ -13,5 +13,5 @@ for ((i=1; ; i++)); do
 done
 
 # Create animated GIF
-convert -delay 10 -loop 0 "$directory/frame*.png" animated.gif
+magick -delay 10 -loop 0 "$directory/frame*.png" animated.gif
 
